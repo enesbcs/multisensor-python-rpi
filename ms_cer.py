@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Multisensor main program: Cerberus project
-# v1.0
+# v1.2
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
 from unit_cputherm import *
@@ -13,6 +13,7 @@ from unit_temp import *
 import os
 import signal
 import json
+import datetime
 
 #GLOBAL VARS BEGIN
 global mqttc
@@ -53,7 +54,7 @@ domomsg = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}" }}'
 
 def getTime():
     # Save a few key strokes
-    return datetime.now().strftime('%H:%M:%S')
+    return datetime.datetime.now().strftime('%H:%M:%S')
   
 def signalHandler(signal, frame):
     global mqttc
@@ -67,7 +68,7 @@ def signalHandler(signal, frame):
     sys.exit(0)
     
 def mqttPublish(msg):
-    global mqttc 
+    global mqttc, mqttSend
     # Publish to MQTT server
 #    print(msg) # DEBUG
     mqttc.publish(mqttSend, msg)
@@ -94,7 +95,11 @@ def IOHandler(channel):
      mqttPublish(msg)   
     if msg1 != "":   
      mqttPublish(msg1)   
-     
+
+def on_connect(client, userdata, flags, rc):
+ global mqttc, mqttReceive
+ mqttc.subscribe(mqttReceive,0)
+
 def on_message(mosq, obj, msg):
   global oSiren
   msg2 = msg.payload.decode('utf-8')
@@ -106,8 +111,9 @@ def on_message(mosq, obj, msg):
    list = []
   if (list):
    if (list['idx'] == IDX_SIREN): # select switch
-     oSiren.play(int(list['svalue1']))
-     
+     rlevel = int(list['svalue1'])
+     oSiren.play(rlevel)
+
 # PROGRAM INIT
 signal.signal(signal.SIGINT, signalHandler)
 GPIO.setwarnings(False)
@@ -115,6 +121,7 @@ GPIO.setmode(GPIO.BCM)
 print("MQTT connection")
 mqttc = mqtt.Client()
 mqttc.on_message = on_message
+mqttc.on_connect = on_connect
 try:
  mqttc.connect(mqttServer, 1883)
 except:
@@ -141,15 +148,15 @@ msg = domomsg.format(IDX_MOTION_C, sMot.getlastvalue(), motionStates[sMot.getlas
 mqttPublish(msg)
 msg = domomsg.format(IDX_REED, sDor.getlastvalue(), motionStates[sDor.getlastvalue()])
 mqttPublish(msg)
-mqttc.subscribe(mqttReceive,0)
+#mqttc.subscribe(mqttReceive,0)
 mqttc.loop_start()
 init_ok = True
      
 while init_ok:
   
   if sTemp.isValueFinal():
-    atmp, ahum = sTemp.readfinalvalue()
-    msg = domomsg.format(IDX_TMP, 0, (str(atmp) + ";" + str(ahum) + ";1") )
+    atmp, ahum, ahs = sTemp.readfinalvalue()
+    msg = domomsg.format(IDX_TMP, 0, (str(atmp) + ";" + str(ahum) + ";" + str(ahs)) )
     mqttPublish(msg)
   else:
     sTemp.readvalue()

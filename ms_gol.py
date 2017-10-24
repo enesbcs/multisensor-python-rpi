@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Multisensor main program: Goliath project
-# v1.0
+# v1.2
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
 from unit_cputherm import *
@@ -14,13 +14,14 @@ from unit_temp import *
 import os
 import signal
 import json
+import datetime
 
 #GLOBAL VARS BEGIN
 global mqttc
 init_ok = False
 #GLOBAL VARS END
 
-mqttServer = "192.168.2.100"
+mqttServer = "192.168.1.2"
 tempdelaysec = 80	# seconds to loop
 
 # Sensor settings begin
@@ -61,7 +62,7 @@ domomsg = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}" }}'
 
 def getTime():
     # Save a few key strokes
-    return datetime.now().strftime('%H:%M:%S')
+    return datetime.datetime.now().strftime('%H:%M:%S')
   
 def signalHandler(signal, frame):
     global mqttc
@@ -76,13 +77,14 @@ def signalHandler(signal, frame):
     sys.exit(0)
     
 def mqttPublish(msg):
-    global mqttc 
+    global mqttc, mqttSend
     # Publish to MQTT server
 #    print(msg) # DEBUG
     mqttc.publish(mqttSend, msg)
     
 def IOHandler(channel):
    global init_ok, sFlame, sSmoke, sMot, domomsg
+   global lastsmoketime, lastflametime
    if init_ok:
     msg = ""
     msg1 = ""
@@ -96,14 +98,18 @@ def IOHandler(channel):
     if (channel == PIN_FLAME):
      lv = sFlame.getlastvalue()
      nv = sFlame.getpinvalue(channel)
-     if (nv != lv):
+     if (nv != lv) and (time.time() - lastflametime > 30):
+       if (nv == 1):
+        lastflametime = time.time()
        msg = domomsg.format(IDX_FLAME_PIN, nv, motionStates[nv])
        msg1 = domomsg.format(IDX_FLAME_VAL, 0, sFlame.getlastnumvalue() )
 
     if (channel == PIN_SMOKE):
      lv = sSmoke.getlastvalue()
      nv = sSmoke.getpinvalue(channel)
-     if (nv != lv):
+     if (nv != lv) and (time.time() - lastsmoketime > 30):
+       if (nv == 1):
+        lastsmoketime = time.time()
        msg = domomsg.format(IDX_SMOKE_PIN, nv, motionStates[nv])
        msg1 = domomsg.format(IDX_SMOKE_VAL, 0, sSmoke.getlastnumvalue() )
 
@@ -111,7 +117,11 @@ def IOHandler(channel):
      mqttPublish(msg)   
     if msg1 != "":   
      mqttPublish(msg1)   
-     
+
+def on_connect(client, userdata, flags, rc):
+ global mqttc, mqttReceive
+ mqttc.subscribe(mqttReceive,0)
+
 def on_message(mosq, obj, msg):
   global oSiren, oRadio, sCPU
   msg2 = msg.payload.decode('utf-8')
@@ -119,7 +129,7 @@ def on_message(mosq, obj, msg):
   try:
    list = json.loads(msg2)
   except Exception as e:
-   print(e)
+#   print(e)
    list = []
   if (list):
    if (list['idx'] == IDX_SIREN): # select switch
@@ -144,6 +154,7 @@ GPIO.setmode(GPIO.BCM)
 print("MQTT connection")
 mqttc = mqtt.Client()
 mqttc.on_message = on_message
+mqttc.on_connect = on_connect
 try:
  mqttc.connect(mqttServer, 1883)
 except:
@@ -181,12 +192,14 @@ if PIN_FAN != 0:
 mqttc.subscribe(mqttReceive,0)
 mqttc.loop_start()
 init_ok = True
+lastsmoketime = 0
+lastflametime = 0
 
 while init_ok:
 
   if sTemp.isValueFinal():
-    atmp, ahum = sTemp.readfinalvalue()
-    msg = domomsg.format(IDX_TMP, 0, (str(atmp) + ";" + str(ahum) + ";1") )
+    atmp, ahum, ahs = sTemp.readfinalvalue()
+    msg = domomsg.format(IDX_TMP, 0, (str(atmp) + ";" + str(ahum) + ";" + str(ahs)) )
     mqttPublish(msg)
   else:
     sTemp.readvalue()

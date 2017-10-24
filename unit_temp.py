@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Unit for Multisensor
 # Purpose: DHT22 data collection
-# v1.0
+# v1.1
 import Adafruit_DHT
 import time
 import util
@@ -108,4 +108,13 @@ class DHT():
       self.lastfinalread = time.time()
       self.resetvalues()
       #print( str(sum(TARR)) + " " + str(len(TARR)) )
-    return util.str2num2(atemp), util.str2num2(ahum)
+    hum = util.str2num2(ahum)
+    hstat = 0
+    if (hum < 40):
+     hstat = 2
+    else:
+     if (hum < 71):
+      hstat = 1
+     else:
+      hstat = 3
+    return util.str2num2(atemp), hum, hstat
