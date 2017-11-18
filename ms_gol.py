@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Multisensor main program: Goliath project
-# v1.2
+# v1.3
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
 from unit_cputherm import *
@@ -15,13 +15,14 @@ import os
 import signal
 import json
 import datetime
+import util
 
 #GLOBAL VARS BEGIN
 global mqttc
 init_ok = False
 #GLOBAL VARS END
 
-mqttServer = "192.168.1.2"
+mqttServer = "192.168.2.100"
 tempdelaysec = 80	# seconds to loop
 
 # Sensor settings begin
@@ -58,14 +59,14 @@ mqttReceive   = 'domoticz/out'
 motionStates  = [ "Off", "On" ]
 
 domomsg = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}" }}'
-
+domomsgw = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}", "RSSI": {3} }}'
 
 def getTime():
     # Save a few key strokes
     return datetime.datetime.now().strftime('%H:%M:%S')
   
 def signalHandler(signal, frame):
-    global mqttc
+    global mqttc, sFlame, sSmoke, sMot
     # Clean up on CTRL-C
     print('\r\n' + getTime() + ': Exiting...')
     mqttc.loop_stop()
@@ -129,6 +130,7 @@ def on_message(mosq, obj, msg):
   try:
    list = json.loads(msg2)
   except Exception as e:
+   print("JSON decode error:",e,"'",msg2,"'")
 #   print(e)
    list = []
   if (list):
@@ -174,7 +176,7 @@ sLight = BH1750(tempdelaysec)
 print("Setup temperature sensor")
 sTemp  = DHT(PIN_TMP,tempdelaysec)
 print("Setup CPU thermal sensor")
-sCPU   = CPUThermal(PIN_FAN,tempdelaysec)
+sCPU   = CPUThermal(PIN_FAN,tempdelaysec,True)
 print("Setup sound outputs")
 oSiren = Siren()
 oRadio = Radio()
@@ -214,7 +216,8 @@ while init_ok:
   if sCPU.isValueFinal():
     fstate1 = sCPU.getfanstate()
     ctmp = sCPU.readfinalvalue()
-    msg = domomsg.format(IDX_PITMP, 0, str(ctmp) )
+    msg = domomsgw.format(IDX_PITMP,0,str(ctmp[0]),util.rssitodomo(ctmp[1]))
+#    msg = domomsg.format(IDX_PITMP, 0, str(ctmp) )
     mqttPublish(msg)
     fstate2 = sCPU.getfanstate()
     if (fstate2 != fstate1):

@@ -1,6 +1,6 @@
 # Unit for Multisensor
 # Purpose: CPU thermal info&control
-# v1.0
+# v1.1
 import RPi.GPIO as GPIO
 import util
 import time
@@ -13,11 +13,12 @@ class CPUThermal():
  FAN_COOLDOWN_TIME = 120 # fan on/off cooldown time in sec
  FAN_MAX_TIME      = 1500 # fan max working time in sec
  
- def __init__(self, pin1=0, readinterval=80):
+ def __init__(self, pin1=0, readinterval=80, readrssi=False):
    self.lastvalue = 0
    self.fanworking = 0
-   self.lastfinalread = time.time()      
+   self.lastfinalread = time.time()
    self.fanstart = 0
+   self.readrssi = readrssi
    if (readinterval < 2):
     self.readinterval = 2
    else:
@@ -33,9 +34,23 @@ class CPUThermal():
    return retval
 
  def readfinalvalue(self): # read avg value from inside buffer  
-   res = os.popen('vcgencmd measure_temp').readline()
-   therm = util.str2num2(res.replace('temp=','').replace("'C\n",""))
-   self.lastfinalread = time.time()   
+   try:
+    res = os.popen('vcgencmd measure_temp').readline()
+   except:
+    res = ""
+   therm2 = util.str2num2(res.replace('temp=','').replace("'C\n",""))
+   if self.readrssi:
+    therm = []
+    therm.append(therm2)
+    try:
+     res = os.popen("/bin/cat /proc/net/wireless | awk 'NR==3 {print $4}' | sed 's/\.//'").read().strip()
+    except:
+     res = "-30"
+#    print(res)
+    therm.append(res)
+   else:
+    therm = therm2
+   self.lastfinalread = time.time()
    if self.pin1 != 0:
     if (therm > self.FAN_THERMAL_ON):
      if (self.fanworking == 0):

@@ -1,7 +1,7 @@
 #!/usr/bin/python2
 # Unit for Multisensor
 # Purpose: MQ-2 data collection
-# v1.0
+# v1.1
 import time
 import Adafruit_ADS1x15
 import RPi.GPIO as GPIO
@@ -9,12 +9,12 @@ import util
 
 class MQ():
  CALIBARAION_SAMPLE_TIMES     = 15
- CALIBRATION_SAMPLE_INTERVAL  = 100
- READ_SAMPLE_INTERVAL         = 10
+ CALIBRATION_SAMPLE_INTERVAL  = 0.4
+ READ_SAMPLE_INTERVAL         = 0.1
  READ_SAMPLE_TIMES            = 5
  ADS1015_I2C_ADDRESS          = 0x48
  I2C_BUS                      = 1
- LOW_LIMIT                    = 13
+ LOW_LIMIT                    = 10
 
  def __init__(self, extcallback, pin1, analogPin=0, readinterval=80):
   self.lastvalue = 0
@@ -24,7 +24,8 @@ class MQ():
   GPIO.setup(self.pin1, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
   GPIO.add_event_detect(self.pin1, GPIO.RISING, callback=extcallback)
   if (readinterval < 2):
-   self.readinterval = 2
+#   self.readinterval = 2
+   self.readinterval = 1
   else:
    self.readinterval = readinterval 
   self.lastfinalread = time.time()   
@@ -48,7 +49,7 @@ class MQ():
    val = 0.0
    for i in range(self.CALIBARAION_SAMPLE_TIMES):
             val += self.adc.read_adc(self.apin,gain=1)
-            time.sleep(self.CALIBRATION_SAMPLE_INTERVAL/1000.0)           
+            time.sleep(self.CALIBRATION_SAMPLE_INTERVAL)
    val = val/self.CALIBARAION_SAMPLE_TIMES
    self.lastcalibration = time.time()
    return val;
@@ -58,7 +59,7 @@ class MQ():
    rs = 0.0
    for i in range(self.READ_SAMPLE_TIMES):
             rs += self.adc.read_adc(self.apin,gain=1)
-            time.sleep(self.READ_SAMPLE_INTERVAL/1000.0)
+            time.sleep(self.READ_SAMPLE_INTERVAL)
    rs = rs/self.READ_SAMPLE_TIMES
    return rs
 
@@ -88,7 +89,7 @@ class MQ():
    tstat = GPIO.input(pin)
    if (pin == self.pin1):
     if (tstat == 1) and (self.lastvalue == 0):
-     if ((time.time() - self.lastalerttime) > 2):
+     if ((time.time() - self.lastalerttime) > 5):
       tvalue = self.readfinalvalue()
       self.lastnumvalue = tvalue
       if (tvalue < self.LOW_LIMIT):

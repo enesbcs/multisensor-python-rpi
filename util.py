@@ -1,6 +1,6 @@
 # Unit for Multisensor
 # Purpose: utility
-# v1.0
+# v1.1
 def str2num(data):
  try:
   data + ''
@@ -10,3 +10,15 @@ def str2num(data):
 
 def str2num2(data):
  return round(str2num(data),2)
+
+def rssitodomo(data): # from -30 to -90 convert to 0-11 to Domoticz
+ data = int(data)
+ res = 0
+ if data>-90:
+  if data>-30:
+   res = 11
+  else:
+   res = int(round((90+data)/5,0)-1)
+ if res < 0:
+  res = 0
+ return res
