@@ -22,7 +22,7 @@ global mqttc
 init_ok = False
 #GLOBAL VARS END
 
-mqttServer = "192.168.2.100"
+mqttServer = "192.168.1.1"
 tempdelaysec = 80	# seconds to loop
 
 # Sensor settings begin
