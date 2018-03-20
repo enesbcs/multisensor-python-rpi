@@ -86,6 +86,10 @@ IDX_RADIO     = 16         # output
 
 PIN_TFT_LED   = 18         # LED PIN of connected TFT, GPIO 18 PWM
 
+IDX_ITAG1_BUTTON = 79
+IDX_ITAG1_BUZZER = 80
+TAG1_MAC = "" # leave it empty if not used!
+
 # MQTT Topics
 mqttSend      = 'domoticz/in'
 mqttReceive   = 'domoticz/out'

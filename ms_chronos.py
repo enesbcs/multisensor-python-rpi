@@ -37,6 +37,7 @@ else:
  from clock.unit_dummy import *
 
 from unit_sound import *
+from unit_itag import *
 
 from PyQt4 import QtGui, QtCore, QtNetwork
 from PyQt4.QtGui import QPixmap, QMovie, QBrush, QColor, QPainter
@@ -62,6 +63,7 @@ motionStates  = [ "Off", "On" ]
 domomsg = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}" }}'
 domomsgsel = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}", "svalue1": "{2}" }}'
 domomsgw = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}", "RSSI": {3} }}'
+domomsgb = '{{ "idx": {0}, "nvalue": {1:0.2f}, "svalue": "{2}", "RSSI" : 12, "Battery": {3} }}'
 
 frontmotionstatus = [0,0]
 
@@ -98,7 +100,7 @@ def IOHandler(channel):
      if (nv != lv):
        msg = domomsg.format(ClockConfig.IDX_MOTION_C, nv, motionStates[nv])
        if nv == 1:
-        print("Side motion")
+#        print("Side motion")
         lastmove = time.time()
         oBacklight.set_level_light_compensated(65535)
 
@@ -120,9 +122,9 @@ def on_connect(client, userdata, flags, rc):
   mqttc.subscribe(ClockConfig.mqttReceive,0)
 
 def on_message(mosq, obj, msg):
-  global frame3, oSiren, oRadio, theradio, MainTimer
-  msg2 = msg.payload.decode('utf-8')
-#  print(msg2)
+ global frame3, oSiren, oRadio, theradio, MainTimer, oBackligh, itag
+ msg2 = msg.payload.decode('utf-8')
+ if ('{' in msg2):
   list = []
   try:
    list = json.loads(msg2)
@@ -130,9 +132,9 @@ def on_message(mosq, obj, msg):
    print(e)
    list = []
   if (list):
-#   print(list['idx'])
    if (list['idx'] == ClockConfig.IDX_SIREN):
 #     print(list['svalue1']) # DEBUG
+     oBacklight.set_level_light_compensated(65535)
      rlevel = 0
      if list['svalue1']:
       rlevel = int(list['svalue1'])
@@ -145,6 +147,7 @@ def on_message(mosq, obj, msg):
        MainTimer.alarmstarted()
    if (list['idx'] == ClockConfig.IDX_RADIO):
 #     print(list['svalue1'])
+     oBacklight.set_level_light_compensated(65535)
      rlevel = 0
      if list['svalue1']:
       rlevel = int(list['svalue1'])
@@ -160,6 +163,17 @@ def on_message(mosq, obj, msg):
      else:
       theradio.stop(False)
      theradio.printchannel() 
+   if (list['idx'] == ClockConfig.IDX_ITAG1_BUZZER):
+     ibuzz = 0
+     if list['nvalue']:
+      ibuzz = int(list['nvalue'])
+     try:
+      if (ibuzz) == 0:
+       itag.setalarmstate(0)
+      else:
+       itag.setalarmstate(1)
+     finally:
+      pass
 
 def tick():
     global hourpixmap, minpixmap, secpixmap
@@ -384,6 +398,7 @@ def sensors():
   if sTemp.isValueFinal():
     atmp, ahum, ahs = sTemp.readfinalvalue()
     msg = domomsg.format(ClockConfig.IDX_TMP, 0, (str(atmp) + ";" + str(ahum) + ";" + str(ahs)) )
+#    print(msg)
     mqttPublish(msg)
     fl = sensorarr[0]
     wx = fl.findChild(QtGui.QLabel, "wx2")
@@ -433,7 +448,7 @@ def sensors():
 
 def qtstart():
     global ctimer, stimer, wxtimer
-    global sMot, sLight, sTemp, sCPU, oSiren, oRadio, oBacklight, sMotF
+    global sMot, sLight, sTemp, sCPU, oSiren, oRadio, oBacklight, sMotF, itag
     global manager, mqttc, lastmove
     global mqttinit, apds
 
@@ -482,6 +497,10 @@ def qtstart():
      except:
       print("APDS init error")
      GPIO.add_event_detect(ClockConfig.PIN_ADPS, GPIO.FALLING, callback = gesturehandler)
+
+    if (ClockConfig.ITAG1_MAC != ""):
+     itag = iTagDevice(ClockConfig.ITAG1_MAC,itagkeyhandler)
+     itagkeyhandler(0)
 
     if mqttinit:
      msg = domomsg.format(ClockConfig.IDX_MOTION_C, sMot.getlastvalue(), motionStates[sMot.getlastvalue()])
@@ -545,7 +564,7 @@ class Radiohandler():
    if DoReply:
     msg = domomsgsel.format(ClockConfig.IDX_RADIO, 2, str( (self.activelevel+1)*10 ))
     mqttPublish(msg)
-    print(msg)
+#    print(msg)
    guitxt2 = frame3.findChild(QtGui.QLabel, "radiotxt2")
    guitxt2.setText("Lejátszás")
 
@@ -571,7 +590,7 @@ def realquit():
 def myquit(a=0, b=0):
     global ctimer, wxtimer, stimer
     global mqttc, mqttinit
-    global sMot, oBacklight, sMotF
+    global sMot, oBacklight, sMotF, itag
     # Clean up on CTRL-C
     #print('\r\n' + getTime() + ': Exiting...')
     oBacklight.set_on()
@@ -586,6 +605,8 @@ def myquit(a=0, b=0):
     ctimer.stop()
     wxtimer.stop()
     stimer.stop()
+    if (ClockConfig.ITAG1_MAC != ""):
+     itag.disconnect()
     if DEBUGMODE!=True:
      GPIO.cleanup()
 
@@ -610,6 +631,7 @@ def gesturehandler(channel): # kezmozdulatok alapjan vezerel
  detect = False
  if apds.isGestureAvailable():
       motion = apds.readGesture()
+#      print(motion)
       if (motion == APDS9960_DIR_LEFT):
         w.insignal.emit(-1) # balra lapoz
         detect = True
@@ -644,6 +666,23 @@ def gesturehandler(channel): # kezmozdulatok alapjan vezerel
 #      print("ADPS move")
       lastmove = time.time()
       oBacklight.set_level_light_compensated(65535)
+
+def itagkeyhandler(event):
+ global itag, MainTimer
+
+ if MainTimer.isalarmactive():
+  alarmhandler(0)
+  MainTimer.alarmstopped()
+ btnnum = 0
+ if (event > 0):
+  btnnum = 1
+ batteryval = itag.report_battery()
+ msg = domomsgb.format(ClockConfig.IDX_ITAG1_BUTTON, btnnum, motionStates[btnnum],batteryval)
+ mqttPublish(msg)
+ if (btnnum == 1):
+  time.sleep(0.5)
+  msg = domomsgb.format(ClockConfig.IDX_ITAG1_BUTTON, 0, motionStates[0],batteryval) # auto off / push button!
+  mqttPublish(msg)
 
 def buttonhandler(name): # gombra kattintasokat kezeli minden kepernyon
     global MainTimer, theradio, w
@@ -731,9 +770,17 @@ class myMain(QtGui.QWidget):
        return 0
 
     def keyPressEvent(self, event):
-        global weatherplayer, lastkeytime
+        global weatherplayer, lastkeytime, w
+        #print('1:',event.key())
         if isinstance(event, QtGui.QKeyEvent):
-            # print event.key(), format(event.key(), '08x')
+#            print('2:',event.key())
+        #    print(event.key(), format(event.key(), '08x'))
+# 16777220 = Android / ENTER
+            if event.key() == 16777220:
+             w.insignal.emit(12) # vilagitas le
+# 16777330 = iOS / XF86AudioRaiseVolume
+            if event.key() == 16777330:
+             w.insignal.emit(13) # hang/riasztas lekapcs
             if event.key() == Qt.Key_F4:
                 myquit()
             if event.key() == Qt.Key_Space:
@@ -789,7 +836,7 @@ class myMain(QtGui.QWidget):
         mqttPublish(msg)
 #        print("MQTT",msg)
       elif code==13:
-       print("Mute")
+#       print("Mute")
        if MainTimer.isalarmactive():
         alarmhandler(0)
         MainTimer.alarmstopped()
@@ -1196,7 +1243,7 @@ class AlarmParams(QtGui.QDialog):
       showmaximizedwindow(self.alist)
 
 def alarmhandler(state):
-  global oSiren, theradio
+  global oSiren, theradio, oBacklight
   if (state == 0):
    print('alarm off')
    oSiren.stop()
@@ -1206,6 +1253,7 @@ def alarmhandler(state):
     theradio.stop(True)
   else:
    print('alarm force on')
+   oBacklight.set_level_light_compensated(65535)
    oSiren.play(10)
    msg = domomsg.format(ClockConfig.IDX_RADIO, 2, str( 10 ))
    mqttPublish(msg)
@@ -1276,7 +1324,7 @@ signal.signal(signal.SIGINT, myquit)
 
 w = myMain()
 w.setWindowTitle(os.path.basename(__file__))
-
+w.setWindowFlags(w.windowFlags() | QtCore.Qt.AA_CaptureMultimediaKeys)
 w.setStyleSheet("QWidget { background-color: black;}")
 
 # fullbgpixmap = QtGui.QPixmap(Config.background)

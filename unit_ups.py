@@ -38,7 +38,7 @@ class UPS():
    self.init_ok = False
    self.readinterval = 99999
   if self.init_ok:
-   print("init ok")
+#   print("init ok")
    self.getpinvalue(self.pin1) 
 
  def rawread(self):

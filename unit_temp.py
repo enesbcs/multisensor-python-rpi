@@ -46,7 +46,8 @@ class DHT():
      self.HARR.append(round(humidity, 2))   
      self.TARR.append(round(temperature, 2))
     self.lastvalueread = time.time()
- 
+#    print(temperature)
+
  def isValueFinal(self):
    retval = False
    if ((time.time() - self.lastfinalread) > self.readinterval):

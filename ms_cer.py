@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Multisensor main program: Cerberus project
-# v1.3
+# v1.4
 import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
 from unit_cputherm import *
@@ -11,15 +11,19 @@ from unit_presence import *
 from unit_sound import *
 from unit_temp import *
 from unit_ups import *
+from unit_wiegand import *
 import os
 import signal
 import json
 import datetime
 import util
+import hashlib
 
 #GLOBAL VARS BEGIN
 global mqttc
 init_ok = False
+nopower = False
+motinprog = 0
 #GLOBAL VARS END
 
 mqttServer = "localhost"
@@ -48,6 +52,15 @@ IDX_REED      = 37
 
 PIN_UPS       = 24         # isPower? UPS Pin
 IDX_UPS       = 48
+
+IDX_READER_PWR  = 68
+IDX_READER_CARD = 67
+IDX_READER_PIN  = 66
+PIN_READER_D0   = 6
+PIN_READER_D1   = 5
+PIN_READER_PWR  = 13
+
+TEMP_COMPENSATION = 0.6
 # Sensor settings end
 
 mqttSend      = 'domoticz/in'
@@ -71,6 +84,7 @@ def signalHandler(signal, frame):
     sMot.signalhandlerRemove()
     sDor.signalhandlerRemove()
     sUPS.signalhandlerRemove()
+    cardreader.signalhandlerRemove()
     GPIO.cleanup()
     sys.exit(0)
     
@@ -81,7 +95,7 @@ def mqttPublish(msg):
     mqttc.publish(mqttSend, msg)
     
 def IOHandler(channel):
-   global init_ok, sMot, sDor, domomsg, sUPS, lastupstime
+   global init_ok, sMot, sDor, domomsg, sUPS, lastupstime, nopower, motinprog
    if init_ok:
     msg = ""
     msg1 = ""
@@ -91,6 +105,14 @@ def IOHandler(channel):
      nv = sMot.getpinvalue(channel)
      if (nv != lv):
        msg = domomsg.format(IDX_MOTION_C, nv, motionStates[nv])
+       if (nv == 1):
+        motinprog = time.time()
+       else:
+        motinprog = 0
+     else:
+      if (motinprog > 0):
+       if (nv == 0):
+        msg = domomsg.format(IDX_MOTION_C, nv, motionStates[nv])
 
     if (channel == PIN_REED):
      lv = sDor.getlastvalue()
@@ -101,9 +123,12 @@ def IOHandler(channel):
     if (channel == PIN_UPS):
      lv = sUPS.getlastvalue()
      nv = sUPS.getpinvalue(channel)
+     if (nopower) and (nv == 1):
+        nopower = False
      if (nv != lv) and (time.time() - lastupstime > 30):
        if (nv == 0):
         lastupstime = time.time()
+        nopower = True
        msg = domomsg.format(IDX_UPS, nv, motionStates[nv])
 
     if msg != "":   
@@ -111,13 +136,37 @@ def IOHandler(channel):
     if msg1 != "":   
      mqttPublish(msg1)   
 
+def readercallback(typecode, data):
+ global cardreader
+
+ transtext = ""
+ if len(str(data))>0:
+  if (typecode == 2) and (len(str(data))>1):
+   if (str(data)[0] == '0'): # parancs
+    transtext = str(data)
+   else:
+    transtext = hashlib.sha1(bytes(data,'utf-8')).hexdigest()
+    if transtext[0] == '0':
+     transtext[0] = '1'
+#    transtext = str(data)
+   msg = domomsg.format(IDX_READER_PIN, 0, transtext)
+   mqttPublish(msg)
+#   print(msg)
+  elif (typecode == 3):
+   transtext = hashlib.sha1(bytes(data,'utf-8')).hexdigest()
+#   transtext = str(data)
+   msg = domomsg.format(IDX_READER_CARD, 0, transtext)
+   mqttPublish(msg)
+#   print(msg)
+
 def on_connect(client, userdata, flags, rc):
  global mqttc, mqttReceive
  mqttc.subscribe(mqttReceive,0)
 
 def on_message(mosq, obj, msg):
-  global oSiren
-  msg2 = msg.payload.decode('utf-8')
+ global oSiren
+ msg2 = msg.payload.decode('utf-8')
+ if ('{' in msg2):
   list = []
   try:
    list = json.loads(msg2)
@@ -128,6 +177,12 @@ def on_message(mosq, obj, msg):
    if (list['idx'] == IDX_SIREN): # select switch
      rlevel = int(list['svalue1'])
      oSiren.play(rlevel)
+   if (list['idx'] == IDX_READER_PWR): # pwr mode
+     pwrmode = int(list['nvalue'])
+     if (pwrmode == 0) or (pwrmode == 1):
+       cardreader.setpowermode(pwrmode)
+     else:
+      print(list)
 
 # PROGRAM INIT
 signal.signal(signal.SIGINT, signalHandler)
@@ -160,7 +215,12 @@ oSiren = Siren()
 #oRadio = Radio()
 print("Setup UPS battery sensor")
 sUPS = UPS(IOHandler,PIN_UPS,0,1,tempdelaysec)
+print("Enabling card reader")
+cardreader = CardReader(PIN_READER_D0,PIN_READER_D1,readercallback,PIN_READER_PWR)
+cardreader.setpowermode(1)
 
+msg = domomsg.format(IDX_READER_PWR, 1, motionStates[1])
+mqttPublish(msg)
 msg = domomsg.format(IDX_MOTION_C, sMot.getlastvalue(), motionStates[sMot.getlastvalue()])
 mqttPublish(msg)
 msg = domomsg.format(IDX_REED, sDor.getlastvalue(), motionStates[sDor.getlastvalue()])
@@ -172,12 +232,14 @@ mqttPublish(msg)
 mqttc.loop_start()
 init_ok = True
 lastupstime = 0
+motinprog = 0
 
 while init_ok:
   
   if sTemp.isValueFinal():
     atmp, ahum, ahs = sTemp.readfinalvalue()
-    msg = domomsg.format(IDX_TMP, 0, (str(atmp) + ";" + str(ahum) + ";" + str(ahs)) )
+    atmp -= TEMP_COMPENSATION
+    msg = domomsg.format(IDX_TMP, 0, (str(round(atmp,2)) + ";" + str(ahum) + ";" + str(ahs)) )
     mqttPublish(msg)
   else:
     sTemp.readvalue()
@@ -193,8 +255,14 @@ while init_ok:
     ctmp = sCPU.readfinalvalue()
     tvar2 = sUPS.readfinalvalue()
 #    print("Battery: ",tvar2[0],"% (",tvar2[1],"V), Power IN:",tvar2[2],"V")
-    msg = domomsgwb.format(IDX_PITMP,0,str(ctmp[0]),util.rssitodomo(ctmp[1]),str(tvar2[0]))
+    if (nopower):       # only return battery status, if charging!
+     batteryval = str(tvar2[0])
+    else:
+     batteryval = "100"
+    msg = domomsgwb.format(IDX_PITMP,0,str(ctmp[0]),util.rssitodomo(ctmp[1]),batteryval)
     mqttPublish(msg)
+    if (nopower) and (tvar2[0] < 10): # no mains and battery under 10 percent
+     os.system("sudo /sbin/shutdown -h now")
 
   if sPres.isScanTime():
     preslist = sPres.doScan()
