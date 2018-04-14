@@ -2,18 +2,23 @@ from bluepy import btle
 import threading
 import time
 
-ITAG_HANDLE_NAME     = 0x03
-ITAG_HANDLE_BATTERY  = 0x08
-ITAG_HANDLE_ALARM    = 0x0b
-ITAG_HANDLE_KEYPRESS = 0x0e
+ITAG_UUID_SVC_GENERIC  = "00001800-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_NAME         = "00002a00-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_SVC_ALARM    = "00001802-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_ALARM        = "00002a06-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_SVC_BATTERY  = "0000180f-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_BATTERY      = "00002a19-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_SVC_KEPYRESS = "0000ffe0-0000-1000-8000-00805f9b34fb"
+ITAG_UUID_KEYPRESS     = "0000ffe1-0000-1000-8000-00805f9b34fb"
 
 class BLEEventHandler(btle.DefaultDelegate):
-    def __init__(self,keypressed_callback):
+    def __init__(self,keypressed_callback,KPHANDLE):
         self.keypressed_callback = keypressed_callback
+        self.keypressed_handle = KPHANDLE
         btle.DefaultDelegate.__init__(self)
 
     def handleNotification(self, cHandle, data):
-        if (cHandle==ITAG_HANDLE_KEYPRESS):
+        if (cHandle==self.keypressed_handle):
          self.keypressed_callback(data[0]) # print("Button pressed")
 
 class BLEBackgroundThread(object):
@@ -46,6 +51,8 @@ class iTagDevice():
      self.bleaddr = bleaddr
      self.connected = False
      self.callbackfunc = callbackfunc
+     self.batterychar = None
+     self.keypressedhandle = 0
      x = 2
      while x>0:
        self.connect()
@@ -55,6 +62,21 @@ class iTagDevice():
         x -= 1
      if self.check_itag():
 #      print("Install callback") # DEBUG
+      try:
+       self.batterychar = self.BLEPeripheral.getCharacteristics(1,0xFF,ITAG_UUID_BATTERY)[0]
+#       self.batterychar = self.BLEPeripheral.getServiceByUUID(ITAG_UUID_SVC_BATTERY).getCharacteristics(ITAG_UUID_BATTERY)[0]
+      except:
+       print("Battery service error")
+      try:
+       self.alarmchar = self.BLEPeripheral.getServiceByUUID(ITAG_UUID_SVC_ALARM).getCharacteristics(ITAG_UUID_ALARM)[0]
+      except:
+       print("Alarm service error")
+      try:
+       kpchar = self.BLEPeripheral.getCharacteristics(1,0xFF,ITAG_UUID_KEYPRESS)[0]
+       self.keypressedhandle = kpchar.getHandle()
+      except:
+       print("Keypress service error")
+
       self.install_callback()
      else:
       self.disconnect()
@@ -70,13 +92,16 @@ class iTagDevice():
      self.BLEPeripheral = btle.Peripheral(self.bleaddr)
     except:
      connection = False
+     print("BLE connection error")
     self.connected = connection
+    if connection:
+     print("BLE connected")
 
    def install_callback(self):
     if self.connected:
      try:
 #      print("setdelegate") # DEBUG
-      self.BLEPeripheral.setDelegate( BLEEventHandler(self.callbackfunc) )
+      self.BLEPeripheral.setDelegate( BLEEventHandler(self.callbackfunc,self.keypressedhandle) )
 #      print("start bg thread") # DEBUG
       self.t = BLEBackgroundThread(self.BLEPeripheral,self.reconnect,0.5)
      except:
@@ -120,36 +145,45 @@ class iTagDevice():
     compat = False
     name = ""
     if (self.connected):
-      try:   
-       name = self.BLEPeripheral.readCharacteristic(ITAG_HANDLE_NAME)
+      try:
+#       print("Get Name Characterisctics")
+       namechar = self.BLEPeripheral.getServiceByUUID(ITAG_UUID_SVC_GENERIC).getCharacteristics(ITAG_UUID_NAME)[0]
+#       print("Read name")
+       name = namechar.read().decode("utf-8")
       except:
        self.reconnect()
-    if (name == b'iTAG            '):
+    if (str(name).upper()[:4] == "ITAG"):
+     print("Supported tag: ",str(name))
      compat = True
     else:
-     print("Not supported tag: ",name)
+     print("Not supported tag: ",str(name))
     return compat
 
    def report_battery(self):
     batt = 0
-    battery = 100
+    battery = [100]
     if (self.connected):
-      try:   
-       battery = self.BLEPeripheral.readCharacteristic(ITAG_HANDLE_BATTERY)
+      try:
+       if self.batterychar != None:
+        battery = self.batterychar.read()
+       else:
+        batt = 100
       except:
        self.reconnect()
     if battery:
      batt = battery[0]
     return batt
 
-   def setalarmstate(self,state): # 0=off, 1=on
-    if state == 0:
-     alarmcmd = b'\0'
-    else:
+   def setalarmstate(self,state): # 0=off, 1=on1, 2=on2
+    alarmcmd = b'\0'
+    if state == 1:
      alarmcmd = b'\1'
+    elif state == 2:
+     alarmcmd = b'\2'
+
     if (self.connected):
       try:   
-       blereply = self.BLEPeripheral.writeCharacteristic(ITAG_HANDLE_ALARM,alarmcmd,True)
+       blereply = self.alarmchar.write(alarmcmd,True)
 #       print("Alarm reply:",blereply)
       except:
        self.reconnect()
