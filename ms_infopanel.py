@@ -24,36 +24,36 @@ lastmot1 = 0
 lastmot2 = 0
 #GLOBAL VARS END
 
-mqttServer = "192.168.2.100"
+mqttServer = "192.168.1.10"
 tempdelaysec = 80	# seconds to loop
 
 # Sensor settings begin
 PIN_TMP      = 22          # Connected to DHT22
-IDX_TMP      = 90
+IDX_TMP      = 90          # temp sensor IDX
 
-IDX_LHT      = 91
+IDX_LHT      = 91          # light sensod Domoticz IDX
 
 PIN_MOTIONP1 = 23          # Connected to HC-SR501 left
 PIN_MOTIONP2 = 24          # Connected to HC-SR501 right
 PIN_MOTIONR  = 16          # Connected to RCWL-0516
 
-IDX_MOTION1  = 86         # combined motion left
-IDX_MOTION2  = 87         # combined motion right
+IDX_MOTION1  = 86         # combined motion left idx
+IDX_MOTION2  = 87         # combined motion right idx
 
-IDX_PITMP    = 92
+IDX_PITMP    = 92         # PI CPU temp IDX
 
-IDX_SIREN     = 94        # output
-IDX_RADIO     = 93
+IDX_SIREN     = 94        # output siren IDX
+IDX_RADIO     = 93        # output radio IDX
 
 PIN_FAN       = 0          # fan is not supported
 #IDX_FAN       = 0
 
-PIN_DISP_PWR  = 26
-IDX_DISP_PWR  = 95
+PIN_DISP_PWR  = 26        # display on/off IDX
+IDX_DISP_PWR  = 95        # relay GPIO pin, that controls  display on/off
 
-NoMotionTime = 900 # second
+NoMotionTime = 900        # seconds to switch off - experimental
 
-TEMP_COMPENSATION = 0.3
+TEMP_COMPENSATION = 0
 # Sensor settings end
 
 mqttSend      = 'domoticz/in'
